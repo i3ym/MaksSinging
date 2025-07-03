@@ -14,8 +14,6 @@ discord.Log += async (log) =>
 var playlist = new Playlist();
 var player = new Player(playlist);
 
-
-// var player = new SongStreamSourceFromDirectory("source");
 var targets = new DiscordTargets(discord);
 player.Targets = targets;
 
@@ -143,8 +141,6 @@ await discord.LoginAsync(Discord.TokenType.Bot, File.ReadAllText("discordkey"));
 await discord.StartAsync();
 
 await Task.Delay(-1);
-// GC.KeepAlive(interactions);
-
 
 async Task RunRpcSenderLoop()
 {
@@ -159,6 +155,7 @@ async Task RunRpcSenderLoop()
         await Task.Delay(10_000);
     }
 }
+
 
 class SongInfo
 {
@@ -315,111 +312,6 @@ interface ISongStreamTarget
 {
     Task Write(ReadOnlyMemory<byte> data);
     Task Flush();
-}
-
-[Obsolete]
-abstract class SongStreamSource
-{
-    public abstract string? CurrentlyPlaying { get; }
-
-    protected static async Task WriteSongTo(string path, IEnumerable<ISongStreamTarget> targets, CancellationToken cancellation)
-    {
-        var ffmpeg = File.Exists("ffmpeg") ? "./ffmpeg" : "ffmpeg";
-        var psi = new ProcessStartInfo(ffmpeg)
-        {
-            RedirectStandardOutput = true,
-            ArgumentList =
-            {
-                "-hide_banner",
-                "-i", path,
-                "-ac", "2",
-                "-ar", "48000",
-                "-f", "s16le",
-                "pipe:1",
-            },
-        };
-        Console.WriteLine($"Launching {psi.FileName} {string.Join(' ', psi.ArgumentList)}");
-
-        using var proc = Process.Start(psi)!;
-        using var ffmpegOutput = proc.StandardOutput.BaseStream;
-        cancellation.Register(proc.Kill);
-
-        var buffer = new byte[1024 * 128];
-        while (true)
-        {
-            if (cancellation.IsCancellationRequested)
-                break;
-
-            var read = await ffmpegOutput.ReadAsync(buffer, cancellation);
-            if (read < 1) break;
-
-            while (!targets.Any())
-                await Task.Delay(100, cancellation);
-
-            await Task.WhenAll(targets.Select(c => c.Write(buffer.AsMemory(0, read))));
-        }
-
-        if (cancellation.IsCancellationRequested)
-            return;
-
-        await proc.WaitForExitAsync(cancellation);
-        await Task.WhenAll(targets.Select(c => c.Flush()));
-    }
-}
-
-[Obsolete]
-class SongStreamSourceFromDirectory : SongStreamSource
-{
-    public IEnumerable<ISongStreamTarget> Targets { get; set; } = [];
-    readonly string DirectoryPath;
-    CancellationTokenSource? Cancellation;
-
-    string? _CurrentlyPlaying;
-    public override string? CurrentlyPlaying => _CurrentlyPlaying;
-
-    string? NextToPlay;
-
-    public SongStreamSourceFromDirectory(string directory) => DirectoryPath = directory;
-
-    public void ForcePlayFile(string path)
-    {
-        NextToPlay = path;
-        Cancellation?.Cancel();
-    }
-
-    public async Task Run()
-    {
-        Queue<string> getFiles() => new(Directory.GetFiles(DirectoryPath).OrderBy(_ => Guid.NewGuid()));
-
-        while (true)
-        {
-            try
-            {
-                var bucket = new Queue<string>();
-
-                while (true)
-                {
-                    if (bucket.Count == 0)
-                        bucket = getFiles();
-
-                    var path = NextToPlay ?? bucket.Dequeue();
-                    NextToPlay = null;
-                    _CurrentlyPlaying = path;
-
-                    Console.WriteLine($"Playing {path}");
-                    Cancellation = new();
-                    await WriteSongTo(path, Targets, Cancellation.Token);
-
-                    _CurrentlyPlaying = null;
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex);
-                Console.WriteLine("Restarting?...");
-            }
-        }
-    }
 }
 
 class DiscordTargets : IEnumerable<ISongStreamTarget>
