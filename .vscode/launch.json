@@ -6,7 +6,7 @@
             "type": "coreclr",
             "request": "launch",
             "preLaunchTask": "build",
-            "program": "${workspaceFolder}/bin/Debug/net10.0/MaksGaming.dll",
+            "program": "${workspaceFolder}/bin/Debug/net10.0/MaksSinging.dll",
             "args": [],
             "cwd": "${workspaceFolder}",
             "stopAtEntry": false,

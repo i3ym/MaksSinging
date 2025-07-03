@@ -5,7 +5,7 @@
             "label": "build",
             "command": "dotnet",
             "type": "process",
-            "args": [ "build", "${workspaceFolder}/MaksGaming.csproj", "/property:GenerateFullPaths=true", "/consoleloggerparameters:NoSummary" ]
+            "args": [ "build", "${workspaceFolder}/MaksSinging.csproj", "/property:GenerateFullPaths=true", "/consoleloggerparameters:NoSummary" ]
         },
     ]
 }
