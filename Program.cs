@@ -1,6 +1,5 @@
 ﻿using System.Collections;
 using System.Diagnostics;
-using System.Security.Cryptography.X509Certificates;
 using Discord;
 using Discord.Audio;
 using Discord.Net;
@@ -168,6 +167,39 @@ interface ISongSource
 {
     Task Play(IEnumerable<ISongStreamTarget> targets, CancellationToken cancellation);
 
+    const int DefaultSampleRate = 48000;
+    const int DefaultChannelCount = 2;
+    const int DefaultBps = 16;
+
+    static async Task PlayFromPcmStream(IEnumerable<ISongStreamTarget> targets, Stream source, CancellationToken cancellation, int ar = DefaultSampleRate, int ac = DefaultChannelCount, int bits = DefaultBps, int bufferms = 50)
+    {
+        var bps = ar * ac * bits / 8;
+        var div = 1000d / bufferms;
+        if ((int) div != div)
+            throw new InvalidOperationException("Can't have non-integer amount of bytes in the buffer");
+        if ((int) (bps / div) != (bps / div))
+            throw new InvalidOperationException("Can't have non-integer amount of bytes in the buffer");
+        bps = (int) (bps / div);
+        Console.WriteLine($"Playing stream {source} with {JsonConvert.SerializeObject(new { ar, ac, bits, bufferms })}");
+
+
+        var buffer = new byte[bps];
+        while (true)
+        {
+            if (cancellation.IsCancellationRequested)
+                break;
+
+            await source.ReadExactlyAsync(buffer, cancellation);
+
+            await Task.WhenAll(targets.Select(c => c.Write(buffer)));
+            await Task.Delay(bufferms);
+        }
+
+        if (cancellation.IsCancellationRequested)
+            return;
+
+        await Task.WhenAll(targets.Select(c => c.Flush()));
+    }
     static async Task PlayThroughFFmpeg(IEnumerable<ISongStreamTarget> targets, string source, CancellationToken cancellation)
     {
         var ffmpeg = File.Exists("ffmpeg") ? "./ffmpeg" : "ffmpeg";
@@ -178,9 +210,9 @@ interface ISongSource
             {
                 "-hide_banner",
                 "-i", source,
-                "-ac", "2",
-                "-ar", "48000",
-                "-f", "s16le",
+                "-ar", $"{DefaultSampleRate}",
+                "-ac", $"{DefaultChannelCount}",
+                "-f", $"s{DefaultBps}le",
                 "pipe:1",
             },
         };
@@ -190,24 +222,7 @@ interface ISongSource
         using var ffmpegOutput = proc.StandardOutput.BaseStream;
         cancellation.Register(proc.Kill);
 
-        var buffer = new byte[1024 * 128];
-        while (true)
-        {
-            if (cancellation.IsCancellationRequested)
-                break;
-
-            var read = await ffmpegOutput.ReadAsync(buffer, cancellation);
-            if (read < 1) break;
-
-            while (!targets.Any())
-                await Task.Delay(100, cancellation);
-
-            await Task.WhenAll(targets.Select(c => c.Write(buffer.AsMemory(0, read))));
-        }
-
-        if (cancellation.IsCancellationRequested)
-            return;
-
+        await PlayFromPcmStream(targets, ffmpegOutput, cancellation, DefaultSampleRate, DefaultChannelCount, DefaultBps);
         await proc.WaitForExitAsync(cancellation);
         await Task.WhenAll(targets.Select(c => c.Flush()));
     }
@@ -332,59 +347,67 @@ class DiscordTargets : IEnumerable<ISongStreamTarget>
         var guild = Client.GetGuild(guildId);
         var channel = guild.GetVoiceChannel(channelId);
 
-        Targets[channelId] = new VoiceChannelState(this, channel);
+        Targets[channelId] = new VoiceChannelState(channel);
     }
 
     public IEnumerator<ISongStreamTarget> GetEnumerator() => ((IReadOnlyDictionary<ulong, ISongStreamTarget>) Targets).Values.GetEnumerator();
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 }
-class VoiceChannelState : ISongStreamTarget, IAsyncDisposable
+class VoiceChannelState : ISongStreamTarget
 {
-    readonly DiscordTargets Targets;
     readonly SocketVoiceChannel Channel;
     AudioOutStream? AudioStream;
 
-    public VoiceChannelState(DiscordTargets targets, SocketVoiceChannel channel)
-    {
-        Targets = targets;
-        Channel = channel;
-    }
+    public VoiceChannelState(SocketVoiceChannel channel) => Channel = channel;
 
     public async Task Write(ReadOnlyMemory<byte> data)
     {
-        if (AudioStream is null)
-            await Reconnect();
+        try
+        {
+            if (AudioStream is null)
+                await Reconnect();
 
-        if (AudioStream is null) return;
+            if (AudioStream is null)
+                return;
 
-        try { await AudioStream.WriteAsync(data); }
-        catch { await Reconnect(); }
+            try { await AudioStream.WriteAsync(data); }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex);
+                await Reconnect();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex);
+        }
     }
     public async Task Flush()
     {
-        if (AudioStream is null)
-            await Reconnect();
+        try
+        {
+            if (AudioStream is null)
+                await Reconnect();
 
-        if (AudioStream is null) return;
+            if (AudioStream is null) return;
 
-        try { await AudioStream.FlushAsync(); }
-        catch { await Reconnect(); }
+            try { await AudioStream.FlushAsync(); }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex);
+                await Reconnect();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex);
+        }
     }
 
     async Task Reconnect()
     {
         var audioClient = await Channel.ConnectAsync(selfDeaf: true);
-        AudioStream = audioClient.CreatePCMStream(Discord.Audio.AudioApplication.Music, 128 * 1024);
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        Targets.Targets.Remove(Channel.Id);
-
-        try { AudioStream?.Dispose(); }
-        catch { }
-
-        try { await Channel.DisconnectAsync(); }
-        catch { }
+        AudioStream = audioClient.CreateDirectPCMStream(Discord.Audio.AudioApplication.Music, 128 * 1024);
+        await audioClient.SetSpeakingAsync(true);
     }
 }
