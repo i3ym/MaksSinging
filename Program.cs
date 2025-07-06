@@ -137,7 +137,7 @@ discord.SlashCommandExecuted += async command =>
     }
 };
 
-await discord.LoginAsync(Discord.TokenType.Bot, File.ReadAllText("discordkey"));
+await discord.LoginAsync(Discord.TokenType.Bot, File.ReadAllText("discordkey").Trim());
 await discord.StartAsync();
 
 await Task.Delay(-1);
