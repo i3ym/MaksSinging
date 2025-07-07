@@ -87,7 +87,7 @@ discord.SlashCommandExecuted += async command =>
         async Task enqueueRespond(Song song, bool atStart)
         {
             playlist.Enqueue(song, atStart);
-            await command.RespondAsync($"ok [{song.Info}] at position {(atStart ? 1 : playlist.Count)}");
+            await command.RespondAsync($"added at position {(atStart ? 1 : playlist.Count)}: {song.Info}");
         }
 
 
