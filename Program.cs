@@ -84,6 +84,13 @@ discord.SlashCommandExecuted += async command =>
 
     if (command.CommandName == "mgplay")
     {
+        async Task enqueueRespond(Song song, bool atStart)
+        {
+            playlist.Enqueue(song, atStart);
+            await command.RespondAsync($"ok [{song.Info}] at position {(atStart ? 1 : playlist.Count)}");
+        }
+
+
         var typ = command.Data.Options.First();
         if (typ.Name == "file")
         {
@@ -98,16 +105,13 @@ discord.SlashCommandExecuted += async command =>
             }
 
             var next = FileSongSource.GetFromFile(files[0]);
-            playlist.Enqueue(next, atStart);
-            await command.RespondAsync($"ok {next.Info}");
+            await enqueueRespond(next, atStart);
             return;
         }
         if (typ.Name == "gop")
         {
             var atStart = (bool) (typ.Options.FirstOrDefault(c => c.Name == "now")?.Value ?? false);
-
-            playlist.Enqueue(GopFm.Create(), atStart);
-            await command.RespondAsync($"ok gop");
+            await enqueueRespond(GopFm.Create(), atStart);
             return;
         }
 
@@ -255,6 +259,7 @@ class GopFm : ISongSource
 record Song(SongInfo Info, ISongSource Source);
 class Playlist
 {
+    public int Count => Queue.Count;
     public IReadOnlyCollection<Song> QueueEnumerable => Queue;
     public Song? Current { get; private set; }
     readonly List<Song> Queue = [];
