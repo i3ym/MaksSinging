@@ -65,23 +65,6 @@ discord.Ready += async () =>
 
 discord.SlashCommandExecuted += async command =>
 {
-    if (command.CommandName == "mgplay_old")
-    {
-        var regex = (string) command.Data.Options.First(c => c.Name == "search").Value;
-
-        var dic = Directory.GetFiles("source", $"*{regex}*");
-        if (dic.Length == 0)
-        {
-            await command.RespondAsync("no");
-            return;
-        }
-
-        var next = dic[0];
-        await command.RespondAsync($"ok {Path.GetFileNameWithoutExtension(next)}");
-        // player.ForcePlayFile(next);
-        return;
-    }
-
     if (command.CommandName == "mgplay")
     {
         async Task enqueueRespond(Song song, bool atStart)
