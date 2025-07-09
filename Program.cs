@@ -114,6 +114,12 @@ discord.SlashCommandExecuted += async command =>
             await enqueueRespond(GopFm.Create(), atStart);
             return;
         }
+        if (typ.Name == "maks")
+        {
+            playlist.Enqueue(FileSongSource.GetFromFile("source/maks.mp3"), true);
+            await command.RespondAsync("ok maks");
+            return;
+        }
 
         await command.RespondAsync($"i disagree");
         return;
