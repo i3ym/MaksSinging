@@ -187,11 +187,6 @@ interface ISongSource
             await Task.WhenAll(targets.Select(c => c.Write(buffer)));
             await Task.Delay(bufferms);
         }
-
-        if (cancellation.IsCancellationRequested)
-            return;
-
-        await Task.WhenAll(targets.Select(c => c.Flush()));
     }
     static async Task PlayThroughFFmpeg(IEnumerable<ISongStreamTarget> targets, string source, CancellationToken cancellation)
     {
