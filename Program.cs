@@ -1,10 +1,12 @@
 ﻿using System.Collections;
 using System.Diagnostics;
+using System.Globalization;
 using Discord;
 using Discord.Audio;
 using Discord.Net;
 using Discord.WebSocket;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 using var discord = new DiscordSocketClient(new DiscordSocketConfig() { GatewayIntents = GatewayIntents.GuildVoiceStates | GatewayIntents.Guilds });
 discord.Log += async (log) =>
@@ -117,14 +119,22 @@ discord.SlashCommandExecuted += async command =>
 
     if (command.CommandName == "mginfo")
     {
-        var count = playlist.QueueEnumerable.Count;
+        var embed1 = new EmbedBuilder()
+            .WithTitle("current")
+            .WithDescription($"""
+                {playlist.Current?.Source.Progress?.ToString() ?? ""}
+                {playlist.Current?.Info?.ToString() ?? "[waiting]"}
+                """.Trim());
+        var embed2 = new EmbedBuilder()
+            .WithTitle("queue")
+            .WithDescription($"""
+                {string.Join('\n', playlist.QueueEnumerable.Take(5).Select((c, i) => $"{i + 1}: {c.Info}"))}
+                {(playlist.QueueEnumerable.Count > 5 ? $"... {playlist.QueueEnumerable.Count} more" : "")}
+                """.Trim())
+            .WithFooter("maks_singing")
+            .WithCurrentTimestamp();
 
-        await command.RespondAsync($"""
-            -: {playlist.Current?.Info.ToString() ?? "[nothing]"}
-            {string.Join('\n', playlist.QueueEnumerable.Take(5).Select((c, i) => $"{i + 1}: {c.Info}"))}
-            {(count > 5 ? $"... {count} more" : "")}
-            """.TrimEnd());
-
+        await command.RespondAsync(embeds: [embed1.Build(), embed2.Build()]);
         return;
     }
 };
@@ -149,6 +159,35 @@ async Task RunRpcSenderLoop()
 }
 
 
+interface ISongProgress
+{
+    string ToString();
+}
+sealed class SongProgress : ISongProgress
+{
+    public TimeSpan Length { get; set; }
+    public TimeSpan Progress { get; set; }
+
+    string ToProgressBar(int length)
+    {
+        var progress = (int) ((Progress / Length) * length);
+        return $"{new string('#', progress)}{new string('-', length - progress)}";
+    }
+
+    public override string ToString() =>
+        $"{Progress.ToString(@"hh\:mm\:ss", CultureInfo.InvariantCulture)} `{ToProgressBar(20)}` {Length.ToString(@"hh\:mm\:ss", CultureInfo.InvariantCulture)}";
+}
+sealed class SongProgressInfinite : ISongProgress
+{
+    public static readonly SongProgressInfinite Instance = new();
+
+    SongProgressInfinite() { }
+
+    public override string ToString() => $"[infinite]";
+}
+
+record ProgressSetter(Action<TimeSpan> SetProgress);
+
 class SongInfo
 {
     public string? Name { get; init; }
@@ -158,13 +197,15 @@ class SongInfo
 
 interface ISongSource
 {
+    ISongProgress Progress { get; }
+
     Task Play(IEnumerable<ISongStreamTarget> targets, CancellationToken cancellation);
 
     const int DefaultSampleRate = 48000;
     const int DefaultChannelCount = 2;
     const int DefaultBps = 16;
 
-    static async Task PlayFromPcmStream(IEnumerable<ISongStreamTarget> targets, Stream source, CancellationToken cancellation, int ar = DefaultSampleRate, int ac = DefaultChannelCount, int bits = DefaultBps, int bufferms = 50)
+    static async Task PlayFromPcmStream(IEnumerable<ISongStreamTarget> targets, Stream source, ProgressSetter? progressSetter, CancellationToken cancellation, int ar = DefaultSampleRate, int ac = DefaultChannelCount, int bits = DefaultBps, int bufferms = 100)
     {
         var bps = ar * ac * bits / 8;
         var div = 1000d / bufferms;
@@ -176,6 +217,7 @@ interface ISongSource
         Console.WriteLine($"Playing stream {source} with {JsonConvert.SerializeObject(new { ar, ac, bits, bufferms })}");
 
 
+        var progress = TimeSpan.Zero;
         var buffer = new byte[bps];
         while (true)
         {
@@ -184,11 +226,14 @@ interface ISongSource
 
             await source.ReadExactlyAsync(buffer, cancellation);
 
+            progress += TimeSpan.FromMilliseconds(bufferms);
+            progressSetter?.SetProgress(progress);
+
             await Task.WhenAll(targets.Select(c => c.Write(buffer)));
             await Task.Delay(bufferms);
         }
     }
-    static async Task PlayThroughFFmpeg(IEnumerable<ISongStreamTarget> targets, string source, CancellationToken cancellation)
+    static async Task PlayThroughFFmpeg(IEnumerable<ISongStreamTarget> targets, string source, ProgressSetter? progressSetter, CancellationToken cancellation)
     {
         var ffmpeg = File.Exists("ffmpeg") ? "./ffmpeg" : "ffmpeg";
         var psi = new ProcessStartInfo(ffmpeg)
@@ -210,9 +255,36 @@ interface ISongSource
         using var ffmpegOutput = proc.StandardOutput.BaseStream;
         cancellation.Register(proc.Kill);
 
-        await PlayFromPcmStream(targets, ffmpegOutput, cancellation, DefaultSampleRate, DefaultChannelCount, DefaultBps);
+        await PlayFromPcmStream(targets, ffmpegOutput, progressSetter, cancellation, DefaultSampleRate, DefaultChannelCount, DefaultBps);
         await proc.WaitForExitAsync(cancellation);
         await Task.WhenAll(targets.Select(c => c.Flush()));
+    }
+    static async Task<TimeSpan?> FFProbeGetDuration(string source)
+    {
+        var ffprobe = File.Exists("ffprobe") ? "./ffprobe" : "ffprobe";
+        var psi = new ProcessStartInfo(ffprobe)
+        {
+            RedirectStandardOutput = true,
+            ArgumentList =
+            {
+                "-hide_banner",
+                "-show_streams",
+                "-show_format",
+                "-print_format", "json",
+                "-v", "quiet",
+                source,
+            },
+        };
+        Console.WriteLine($"Launching {psi.FileName} {string.Join(' ', psi.ArgumentList)}");
+
+        using var proc = Process.Start(psi)!;
+        var json = await proc.StandardOutput.ReadToEndAsync();
+
+        var duration = JObject.Parse(json)?["format"]?["duration"]?.Value<double>();
+        if (duration is { } dur)
+            return TimeSpan.FromSeconds(dur);
+
+        return null;
     }
 }
 class FileSongSource : ISongSource
@@ -222,21 +294,35 @@ class FileSongSource : ISongSource
     public static Song GetFromFile(string file) =>
         new Song(new SongInfo() { Name = Path.GetFileNameWithoutExtension(file).Split('[', StringSplitOptions.TrimEntries)[0] }, new FileSongSource(file));
 
+    ISongProgress ISongSource.Progress => Progress;
+    readonly SongProgress Progress = new();
     readonly string FilePath;
 
     public FileSongSource(string path) => FilePath = path;
 
-    public Task Play(IEnumerable<ISongStreamTarget> targets, CancellationToken cancellation) =>
-        ISongSource.PlayThroughFFmpeg(targets, FilePath, cancellation);
+    public Task Play(IEnumerable<ISongStreamTarget> targets, CancellationToken cancellation)
+    {
+        _ = ISongSource.FFProbeGetDuration(FilePath)
+            .ContinueWith(result =>
+            {
+                if (result is { IsCompletedSuccessfully: true, Result: { } duration })
+                    Progress.Length = duration;
+            }, cancellation);
+
+        var ps = new ProgressSetter(progress => Progress.Progress = progress);
+        return ISongSource.PlayThroughFFmpeg(targets, FilePath, ps, cancellation);
+    }
 }
 class GopFm : ISongSource
 {
     public static Song Create() => new Song(new SongInfo() { Name = "Gop FM" }, new GopFm());
 
+    ISongProgress ISongSource.Progress => SongProgressInfinite.Instance;
+
     public async Task Play(IEnumerable<ISongStreamTarget> targets, CancellationToken cancellation)
     {
         var url = "https://hls-01-radiorecord.hostingradio.ru/record-gop/112/playlist.m3u8";
-        await ISongSource.PlayThroughFFmpeg(targets, url, cancellation);
+        await ISongSource.PlayThroughFFmpeg(targets, url, null, cancellation);
     }
 }
 
