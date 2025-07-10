@@ -183,7 +183,7 @@ sealed class SongProgressInfinite : ISongProgress
 
     SongProgressInfinite() { }
 
-    public override string ToString() => $"[infinite]";
+    public override string ToString() => $"~ radio ~";
 }
 
 record ProgressSetter(Action<TimeSpan> SetProgress);
@@ -257,7 +257,9 @@ interface ISongSource
 
         await PlayFromPcmStream(targets, ffmpegOutput, progressSetter, cancellation, DefaultSampleRate, DefaultChannelCount, DefaultBps);
         await proc.WaitForExitAsync(cancellation);
-        await Task.WhenAll(targets.Select(c => c.Flush()));
+
+        // causes issues with /mgskip
+        // await Task.WhenAll(targets.Select(c => c.Flush()));
     }
     static async Task<TimeSpan?> FFProbeGetDuration(string source)
     {
