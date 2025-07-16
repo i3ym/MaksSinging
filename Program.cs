@@ -211,7 +211,8 @@ static class FFmpegSongPlayer
             if (cancellation.IsCancellationRequested)
                 break;
 
-            await source.ReadExactlyAsync(buffer, cancellation);
+            try { await source.ReadExactlyAsync(buffer, cancellation); }
+            catch (EndOfStreamException) { break; }
 
             progress += TimeSpan.FromMilliseconds(bufferms);
             progressSetter(progress);
