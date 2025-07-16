@@ -231,6 +231,7 @@ static class FFmpegSongPlayer
             RedirectStandardOutput = true,
             ArgumentList =
             {
+                "-hwaccel", "auto",
                 "-hide_banner",
                 "-i", source,
                 "-ar", $"{DefaultSampleRate}",
