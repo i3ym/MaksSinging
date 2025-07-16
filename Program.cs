@@ -79,7 +79,7 @@ discord.SlashCommandExecuted += async command =>
         var typ = command.Data.Options.First();
         if (typ.Name == "file")
         {
-            var atStart = (bool) (typ.Options.FirstOrDefault(c => c.Name == "now")?.Value ?? false);
+            var atStart = (bool) (typ.Options.FirstOrDefault(c => c.Name == "now")?.Value ?? true);
 
             var search = (string) typ.Options.First(c => c.Name == "search").Value;
             var files = Directory.GetFiles("source", $"*{search}*");
@@ -95,7 +95,7 @@ discord.SlashCommandExecuted += async command =>
         }
         if (typ.Name == "gop")
         {
-            var atStart = (bool) (typ.Options.FirstOrDefault(c => c.Name == "now")?.Value ?? false);
+            var atStart = (bool) (typ.Options.FirstOrDefault(c => c.Name == "now")?.Value ?? true);
             await enqueueRespond(GopFm.Create(), atStart);
             return;
         }
