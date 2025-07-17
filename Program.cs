@@ -40,6 +40,12 @@ discord.Ready += async () =>
                 .WithDescription("gop fm")
                 .WithType(ApplicationCommandOptionType.SubCommand)
                 .AddOption("now", ApplicationCommandOptionType.Boolean, "is now?", isRequired: false)
+            )
+            .AddOption(new SlashCommandOptionBuilder()
+                .WithName("maks")
+                .WithDescription("maks")
+                .WithType(ApplicationCommandOptionType.SubCommand)
+                .AddOption("now", ApplicationCommandOptionType.Boolean, "is now?", isRequired: false)
             ),
         new SlashCommandBuilder()
             .WithName("mgskip")
