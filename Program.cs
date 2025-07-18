@@ -199,7 +199,7 @@ static class FFmpegSongPlayer
     public const int DefaultChannelCount = 2;
     public const int DefaultBps = 16;
 
-    static async Task PlayFromPcmStream(IEnumerable<ISongStreamTarget> targets, Stream source, ProgressSetterDelegate progressSetter, CancellationToken cancellation, int ar = DefaultSampleRate, int ac = DefaultChannelCount, int bits = DefaultBps, int bufferms = 100)
+    static async Task PlayFromPcmStream(IEnumerable<ISongStreamTarget> targets, Stream source, ProgressSetterDelegate progressSetter, CancellationToken cancellation, int ar = DefaultSampleRate, int ac = DefaultChannelCount, int bits = DefaultBps, int bufferms = 1000)
     {
         var bps = ar * ac * bits / 8;
         var div = 1000d / bufferms;
@@ -211,20 +211,35 @@ static class FFmpegSongPlayer
         Console.WriteLine($"Playing stream {source} with {JsonConvert.SerializeObject(new { ar, ac, bits, bufferms })}");
 
         var progress = TimeSpan.Zero;
-        var buffer = new byte[bps];
-        while (true)
+        async Task e(ReadOnlyMemory<byte> bufferWrite, Memory<byte> bufferRead)
         {
-            if (cancellation.IsCancellationRequested)
-                break;
+            var readTask = source.ReadExactlyAsync(bufferRead, cancellation);
+            await Task.WhenAll(targets.Select(c => c.Write(bufferWrite)));
+            await Task.Delay(bufferms);
 
-            try { await source.ReadExactlyAsync(buffer, cancellation); }
-            catch (EndOfStreamException) { break; }
-
+            await readTask;
             progress += TimeSpan.FromMilliseconds(bufferms);
             progressSetter(progress);
+        }
 
-            await Task.WhenAll(targets.Select(c => c.Write(buffer)));
-            await Task.Delay(bufferms);
+        var buffer1 = new byte[bps];
+        var buffer2 = new byte[bps];
+        try
+        {
+            while (true)
+            {
+                if (cancellation.IsCancellationRequested)
+                    break;
+                await e(buffer1, buffer2);
+
+                if (cancellation.IsCancellationRequested)
+                    break;
+                await e(buffer2, buffer1);
+            }
+        }
+        catch (EndOfStreamException)
+        {
+            // do nothing
         }
     }
     static async Task Play(IEnumerable<ISongStreamTarget> targets, string source, ProgressSetterDelegate progressSetter, TimeSpan progress, CancellationToken cancellation)
