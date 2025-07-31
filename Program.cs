@@ -199,47 +199,22 @@ static class FFmpegSongPlayer
     public const int DefaultChannelCount = 2;
     public const int DefaultBps = 16;
 
-    static async Task PlayFromPcmStream(IEnumerable<ISongStreamTarget> targets, Stream source, ProgressSetterDelegate progressSetter, CancellationToken cancellation, int ar = DefaultSampleRate, int ac = DefaultChannelCount, int bits = DefaultBps, int bufferms = 1000)
+    static async Task PlayFromPcmStream(IEnumerable<ISongStreamTarget> targets, Stream source, ProgressSetterDelegate progressSetter, CancellationToken cancellation)
     {
-        var bps = ar * ac * bits / 8;
-        var div = 1000d / bufferms;
-        if ((int) div != div)
-            throw new InvalidOperationException("Can't have non-integer amount of bytes in the buffer");
-        if ((int) (bps / div) != (bps / div))
-            throw new InvalidOperationException("Can't have non-integer amount of bytes in the buffer");
-        bps = (int) (bps / div);
-        Console.WriteLine($"Playing stream {source} with {JsonConvert.SerializeObject(new { ar, ac, bits, bufferms })}");
+        var bps = DefaultSampleRate * DefaultChannelCount * DefaultBps / 8.0;
+        Console.WriteLine($"Playing stream {source}");
 
-        var progress = TimeSpan.Zero;
-        async Task e(ReadOnlyMemory<byte> bufferWrite, Memory<byte> bufferRead)
+        var bytesRead = 0L;
+        var buffer = new byte[1024 * 1024];
+        while (true)
         {
-            var readTask = source.ReadExactlyAsync(bufferRead, cancellation);
-            await Task.WhenAll(targets.Select(c => c.Write(bufferWrite)));
-            await Task.Delay(bufferms);
+            if (cancellation.IsCancellationRequested) break;
 
-            await readTask;
-            progress += TimeSpan.FromMilliseconds(bufferms);
-            progressSetter(progress);
-        }
+            var read = await source.ReadAsync(buffer, cancellation);
+            bytesRead += read;
+            await Task.WhenAll(targets.Select(c => c.Write(buffer.AsMemory()[..read])));
 
-        var buffer1 = new byte[bps];
-        var buffer2 = new byte[bps];
-        try
-        {
-            while (true)
-            {
-                if (cancellation.IsCancellationRequested)
-                    break;
-                await e(buffer1, buffer2);
-
-                if (cancellation.IsCancellationRequested)
-                    break;
-                await e(buffer2, buffer1);
-            }
-        }
-        catch (EndOfStreamException)
-        {
-            // do nothing
+            progressSetter(TimeSpan.FromSeconds(bytesRead / bps));
         }
     }
     static async Task Play(IEnumerable<ISongStreamTarget> targets, string source, ProgressSetterDelegate progressSetter, TimeSpan progress, CancellationToken cancellation)
@@ -254,6 +229,7 @@ static class FFmpegSongPlayer
             {
                 "-hwaccel", "auto",
                 "-hide_banner",
+                "-re",
                 "-i", source,
                 "-ar", $"{DefaultSampleRate}",
                 "-ac", $"{DefaultChannelCount}",
@@ -268,7 +244,7 @@ static class FFmpegSongPlayer
         using var ffmpegOutput = proc.StandardOutput.BaseStream;
         cancellation.Register(proc.Kill);
 
-        await PlayFromPcmStream(targets, ffmpegOutput, p => progressSetter(progress + p), cancellation, DefaultSampleRate, DefaultChannelCount, DefaultBps);
+        await PlayFromPcmStream(targets, ffmpegOutput, p => progressSetter(progress + p), cancellation);
         await proc.WaitForExitAsync(cancellation);
 
         // causes issues with /mgskip
