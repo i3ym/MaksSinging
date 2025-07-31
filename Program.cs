@@ -211,6 +211,8 @@ static class FFmpegSongPlayer
             if (cancellation.IsCancellationRequested) break;
 
             var read = await source.ReadAsync(buffer, cancellation);
+            if (read == 0) break;
+
             bytesRead += read;
             await Task.WhenAll(targets.Select(c => c.Write(buffer.AsMemory()[..read])));
 
