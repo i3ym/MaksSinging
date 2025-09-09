@@ -179,7 +179,7 @@ discord.SlashCommandExecuted += async command =>
         var state = targets.ToggleAutoReconnect(gid.Value);
         if (state is null)
         {
-            await command.RespondAsync("no");
+            await command.RespondAsync("unknown state");
             return;
         }
 
