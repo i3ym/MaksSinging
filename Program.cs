@@ -57,6 +57,9 @@ discord.Ready += async () =>
         new SlashCommandBuilder()
             .WithName("mginfo")
             .WithDescription("makss gminag paylist"),
+        new SlashCommandBuilder()
+            .WithName("mgtoggle")
+            .WithDescription("makss gminag reconnect"),
     };
 
     try
@@ -161,6 +164,26 @@ discord.SlashCommandExecuted += async command =>
             .WithCurrentTimestamp();
 
         await command.RespondAsync(embeds: [embed1.Build(), embed2.Build()]);
+        return;
+    }
+
+    if (command.CommandName == "mgtoggle")
+    {
+        var gid = command.GuildId;
+        if (gid is null || !targets.ToConnect.ContainsKey(gid.Value))
+        {
+            await command.RespondAsync("unknown guild");
+            return;
+        }
+
+        var state = targets.ToggleAutoReconnect(gid.Value);
+        if (state is null)
+        {
+            await command.RespondAsync("no");
+            return;
+        }
+
+        await command.RespondAsync($"ok reconnect: {(state.Value ? "enabled" : "disabled")}");
         return;
     }
 };
@@ -497,12 +520,17 @@ class DiscordTargets : IEnumerable<ISongStreamTarget>
     public Dictionary<ulong, ISongStreamTarget> Targets { get; } = [];
     readonly DiscordSocketClient Client;
 
+    public Dictionary<ulong, ulong> ToConnect { get; } = new()
+    {
+        [1053774759244083280] = 1386284245546307675,
+        [1405492907883892766] = 1406001214952444026,
+    };
+
     public DiscordTargets(DiscordSocketClient client) => Client = client;
 
     public async Task Start()
     {
-        var toConnect = new Dictionary<ulong, ulong>() { [1053774759244083280] = 1386284245546307675, [1405492907883892766] = 1406001214952444026 };
-        foreach (var (g, v) in toConnect)
+        foreach (var (g, v) in ToConnect)
             await Connect(g, v);
     }
     async Task Connect(ulong guildId, ulong channelId)
@@ -512,14 +540,29 @@ class DiscordTargets : IEnumerable<ISongStreamTarget>
 
         Targets[channelId] = new VoiceChannelState(channel);
     }
+    public bool? ToggleAutoReconnect(ulong guildId)
+    {
+        if (!ToConnect.TryGetValue(guildId, out var channelId)) return null;
+        if (!Targets.TryGetValue(channelId, out var t)) return null;
 
-    public IEnumerator<ISongStreamTarget> GetEnumerator() => ((IReadOnlyDictionary<ulong, ISongStreamTarget>) Targets).Values.GetEnumerator();
+        if (t is VoiceChannelState v)
+        {
+            v.AutoReconnectEnabled = !v.AutoReconnectEnabled;
+            return v.AutoReconnectEnabled;
+        }
+
+        return null;
+    }
+
+    public IEnumerator<ISongStreamTarget> GetEnumerator() => ((IReadOnlyDictionary<ulong, ISongStreamTarget>)Targets).Values.GetEnumerator();
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 }
 class VoiceChannelState : ISongStreamTarget
 {
     readonly SocketVoiceChannel Channel;
     AudioOutStream? AudioStream;
+
+    public bool AutoReconnectEnabled { get; set; } = true;
 
     public VoiceChannelState(SocketVoiceChannel channel) => Channel = channel;
 
@@ -549,7 +592,7 @@ class VoiceChannelState : ISongStreamTarget
     {
         try
         {
-            if (AudioStream is null)
+            if (AudioStream is null && AutoReconnectEnabled)
                 await Reconnect();
 
             if (AudioStream is null) return;
@@ -558,7 +601,8 @@ class VoiceChannelState : ISongStreamTarget
             catch (Exception ex)
             {
                 Console.WriteLine(ex);
-                await Reconnect();
+                if (AutoReconnectEnabled)
+                    await Reconnect();
             }
         }
         catch (Exception ex)
