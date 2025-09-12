@@ -501,7 +501,7 @@ class DiscordTargets : IEnumerable<ISongStreamTarget>
 
     public async Task Start()
     {
-        var toConnect = new Dictionary<ulong, ulong>() { [1053774759244083280] = 1386284245546307675 };
+        var toConnect = new Dictionary<ulong, ulong>() { [1053774759244083280] = 1386284245546307675, [1405492907883892766] = 1406001214952444026 };
         foreach (var (g, v) in toConnect)
             await Connect(g, v);
     }
