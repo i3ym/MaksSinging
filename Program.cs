@@ -570,7 +570,7 @@ class VoiceChannelState : ISongStreamTarget
     {
         try
         {
-            if (AudioStream is null)
+            if (AudioStream is null && AutoReconnectEnabled)
                 await Reconnect();
 
             if (AudioStream is null)
@@ -580,7 +580,8 @@ class VoiceChannelState : ISongStreamTarget
             catch (Exception ex)
             {
                 Console.WriteLine(ex);
-                await Reconnect();
+                if (AutoReconnectEnabled)
+                    await Reconnect();
             }
         }
         catch (Exception ex)
