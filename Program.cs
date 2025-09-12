@@ -554,7 +554,7 @@ class DiscordTargets : IEnumerable<ISongStreamTarget>
         return null;
     }
 
-    public IEnumerator<ISongStreamTarget> GetEnumerator() => ((IReadOnlyDictionary<ulong, ISongStreamTarget>)Targets).Values.GetEnumerator();
+    public IEnumerator<ISongStreamTarget> GetEnumerator() => ((IReadOnlyDictionary<ulong, ISongStreamTarget>) Targets).Values.GetEnumerator();
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
 }
 class VoiceChannelState : ISongStreamTarget
