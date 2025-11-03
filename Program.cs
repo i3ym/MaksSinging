@@ -21,7 +21,7 @@ player.Targets = targets;
 discord.Ready += async () => new Thread(async () => await player.Run()) { IsBackground = false }.Start();
 discord.Ready += async () => new Thread(async () => await targets.Start()) { IsBackground = false }.Start();
 discord.Ready += async () => new Thread(async () => await RunRpcSenderLoop()) { IsBackground = false }.Start();
-discord.Ready += async () =>
+discord.Ready += async () => new Thread(async () =>
 {
     var commands = new[]
     {
@@ -72,7 +72,8 @@ discord.Ready += async () =>
         var json = JsonConvert.SerializeObject(exception.Errors, Formatting.Indented);
         Console.WriteLine(json);
     }
-};
+})
+{ IsBackground = false }.Start();
 
 discord.SlashCommandExecuted += async command =>
 {
