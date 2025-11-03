@@ -11,6 +11,8 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.10" />
     <PackageReference Include="NetCord" Version="1.0.0-alpha.444" />
     <PackageReference Include="NetCord.Hosting" Version="1.0.0-alpha.444" />
+    <PackageReference Include="NetCord.Hosting.Services" Version="1.0.0-alpha.444" />
+    <PackageReference Include="NetCord.Services" Version="1.0.0-alpha.444" />
   </ItemGroup>
 
 </Project>
