@@ -17,6 +17,39 @@ public interface ISongPlayState
     string GetProgress();
 }
 
+[SlashCommand("mgplay", "maks gaming play")]
+public sealed class RadioPlayCommand(Radio Radio) : ApplicationCommandModule<ApplicationCommandContext>
+{
+    async Task<string> EnqueueRespond(Radio.Song song, bool atStart)
+    {
+        Radio.Queue.Enqueue(song, atStart);
+        return $"added at position {(atStart ? 1 : Radio.Queue.Count)}: {song.Info}";
+    }
+
+    [SubSlashCommand("file", "maks gaming play file")]
+    public async Task<string> PlayFile(string search, bool atStart = true)
+    {
+        var files = Directory.GetFiles("source", $"*{search}*", SearchOption.AllDirectories);
+        if (files.Length == 0) return "no";
+
+        var next = Radio.FileSongSource.GetFromFile(files[0]);
+        return await EnqueueRespond(next, atStart);
+    }
+
+    [SubSlashCommand("maks", "maks gaming play maks")]
+    public async Task<string> PlayMaks(bool atStart = true)
+    {
+        var file = Directory.GetFiles("source/maks").Shuffle().FirstOrDefault();
+        if (file is null) return "no maks";
+
+        Radio.Queue.Enqueue(Radio.FileSongSource.GetFromFile(file), atStart);
+        return "ok maks";
+    }
+
+    [SubSlashCommand("gop", "maks gaming play gop fm")]
+    public async Task<string> PlayGop(bool atStart = true) =>
+        await EnqueueRespond(Radio.GopFmSongSource.Create(), atStart);
+}
 public sealed class RadioCommands(Radio Radio) : ApplicationCommandModule<ApplicationCommandContext>
 {
     [SlashCommand("mghelp", "maks gaming help")]
@@ -71,7 +104,20 @@ public sealed class RadioCommands(Radio Radio) : ApplicationCommandModule<Applic
         await Radio.LeaveVoiceChannel(Context.Guild!.Id);
         return "k";
     }
+
+    [SlashCommand("mgskip", "maks gaming skip")]
+    public async Task<string> Skip()
+    {
+        var current = Radio.Queue.Current;
+        if (current is null) return "no";
+
+        Radio.ThePlayer.Skip();
+        return $"k skipped {current.Info}";
+    }
+
+    public enum AddType { File }
 }
+
 public class Radio(GatewayClient Discord, IServiceProvider Di, ILogger<Radio> Logger) : IStreamTarget
 {
     public Player ThePlayer { get; private set; } = null!;
@@ -196,10 +242,10 @@ public class Radio(GatewayClient Discord, IServiceProvider Di, ILogger<Radio> Lo
         }
     }
 
-    sealed class FileSongSource : ISongSource
+    public sealed class FileSongSource : ISongSource
     {
         public static IEnumerable<Song> GetAllFromDirectoryRandomlyOrdered(string directory) =>
-            Directory.GetFiles(directory).Select(GetFromFile).OrderBy(_ => Guid.NewGuid());
+            Directory.GetFiles(directory, "*", SearchOption.AllDirectories).Select(GetFromFile).OrderBy(_ => Guid.NewGuid());
         public static Song GetFromFile(string file) =>
             new Song(new SongInfo() { Name = Path.GetFileNameWithoutExtension(file).Split('[', StringSplitOptions.TrimEntries)[0] }, new FileSongSource(file));
 
@@ -210,6 +256,17 @@ public class Radio(GatewayClient Discord, IServiceProvider Di, ILogger<Radio> Lo
         public ISongPlayState Play(out Task task, IStreamTarget targets) =>
             FFmpegPlayer.PlayWithState(out task, targets, FilePath);
     }
+    public sealed class GopFmSongSource : ISongSource
+    {
+        public static Song Create() => new Song(new SongInfo() { Name = "Gop FM" }, new GopFmSongSource());
+
+        public ISongPlayState Play(out Task task, IStreamTarget target)
+        {
+            var url = "https://hls-01-radiorecord.hostingradio.ru/record-gop/112/playlist.m3u8";
+            return FFmpegPlayer.PlayWithState(out task, target, url);
+        }
+    }
+
     sealed class GuildRadio(GatewayClient Discord, Guild Guild, ILogger<GuildRadio> Logger) : IStreamTarget
     {
         VoiceClient? Client;
