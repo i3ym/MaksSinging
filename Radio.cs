@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using NetCord;
 using NetCord.Gateway;
 using NetCord.Gateway.Voice;
 using NetCord.Rest;
@@ -131,6 +132,16 @@ public class Radio(GatewayClient Discord, IServiceProvider Di, ILogger<Radio> Lo
         var pl = new Player(Queue, this);
         ThePlayer = pl;
 
+        pl.SongStarted += async song =>
+        {
+            await Discord.UpdatePresenceAsync(new PresenceProperties(UserStatusType.Online)
+            {
+                Activities = [
+                    new UserActivityProperties(song.Info.ToString(), UserActivityType.Listening)
+                ],
+            });
+        };
+
         Queue.Enqueue(false, FileSongSource.GetAllFromDirectoryRandomlyOrdered("source"));
 
 
@@ -161,6 +172,7 @@ public class Radio(GatewayClient Discord, IServiceProvider Di, ILogger<Radio> Lo
 
     public sealed class Player
     {
+        public event Action<Song>? SongStarted;
         public ISongPlayState? Current { get; private set; }
 
         public Playlist Playlist { get; }
@@ -194,6 +206,7 @@ public class Radio(GatewayClient Discord, IServiceProvider Di, ILogger<Radio> Lo
 
                     Console.WriteLine($"Playing {song.Info}");
                     Current = song.Source.Play(out var task, Radio);
+                    SongStarted?.Invoke(song);
 
                     await task;
                 }
