@@ -162,7 +162,7 @@ public class Radio(GatewayClient Discord, IServiceProvider Di, ILogger<Radio> Lo
     }
 
     public async Task JoinVoiceChannel(ulong guildId, ulong channelId) =>
-        await Discord.UpdateVoiceStateAsync(new VoiceStateProperties(guildId, channelId));
+        await Discord.UpdateVoiceStateAsync(new VoiceStateProperties(guildId, channelId) { SelfDeaf = true });
     public async Task LeaveVoiceChannel(ulong guildId) =>
         await Discord.UpdateVoiceStateAsync(new VoiceStateProperties(guildId, null));
 
