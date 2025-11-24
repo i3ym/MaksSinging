@@ -150,7 +150,7 @@ public class Radio(GatewayClient Discord, IServiceProvider Di, ILogger<Radio> Lo
             if (args.Guild is null) return;
 
             Guilds[args.Guild.Id] = new(Discord, args.Guild, Di.GetRequiredService<ILogger<GuildRadio>>());
-            await Guilds[args.Guild.Id].Start();
+            await Guilds[args.Guild.Id].Start(this);
         };
         Discord.GuildDelete += async args =>
         {
@@ -285,9 +285,12 @@ public class Radio(GatewayClient Discord, IServiceProvider Di, ILogger<Radio> Lo
         VoiceClient? Client;
         OpusEncodeStream? OpusStream;
 
-        public async Task Start()
+        public async Task Start(Radio radio)
         {
             Logger.LogInformation("Initializing guild {}", new { name = Guild.Name, id = Guild.Id });
+
+            var cid = 1386284245546307675ul; // awms radio channel
+            var cidVoiceUsers = new HashSet<GuildUser>();
 
             var debounceToken = new CancellationTokenSource();
             string? endpoint = null;
@@ -306,11 +309,33 @@ public class Radio(GatewayClient Discord, IServiceProvider Di, ILogger<Radio> Lo
             Discord.VoiceStateUpdate += async args =>
             {
                 if (args.GuildId != Guild.Id) return;
-                if (args.UserId != Discord.Id) return;
+                Logger.LogInformation($"{args.GuildId} User {args.User?.Nickname} -> {args.ChannelId}");
 
-                sessionid = args.SessionId;
-                channelid = args.ChannelId;
-                await update();
+                if (args.UserId == Discord.Id)
+                {
+                    sessionid = args.SessionId;
+                    channelid = args.ChannelId;
+                    await update();
+                    return;
+                }
+
+                if (args.User is not null)
+                {
+                    if (args.ChannelId == cid)
+                        cidVoiceUsers.Add(args.User);
+                    else cidVoiceUsers.Remove(args.User);
+
+                    if (cidVoiceUsers.Count == 0)
+                    {
+                        Logger.LogInformation($"Auto-leaving channel {channelid} as it's empty");
+                        await radio.LeaveVoiceChannel(Guild.Id);
+                    }
+                    else
+                    {
+                        Logger.LogInformation($"Auto-joining channel {cid}");
+                        await radio.JoinVoiceChannel(Guild.Id, cid);
+                    }
+                }
             };
 
 
@@ -329,7 +354,7 @@ public class Radio(GatewayClient Discord, IServiceProvider Di, ILogger<Radio> Lo
             }
             async Task _update()
             {
-                if (sessionid is null || endpoint is null || token is null) return;
+                if (sessionid is null || endpoint is null || token is null || channelid is null) return;
                 Logger.LogInformation("Restarting voice with {}", new { guildId = Guild.Id, channelid, sessionid, endpoint, token });
 
                 try { Client?.Abort(); }
